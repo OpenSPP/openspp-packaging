@@ -19,9 +19,10 @@ import subprocess
 import sys
 import tarfile
 import time
-import yaml
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
+import yaml
 
 # Constants
 VENDOR_DIR = Path("./vendor")

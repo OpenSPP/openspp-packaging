@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from os.path import dirname, join
+
 from setuptools import find_packages, setup
-from os.path import join, dirname
 
 
 # Load release variables
