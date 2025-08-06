@@ -52,7 +52,7 @@ fi
 
 # Clean previous builds
 echo "Cleaning previous builds..."
-rm -rf build dist *.egg-info
+rm -rf build dist ./*.egg-info
 
 # Build Python packages
 echo ""

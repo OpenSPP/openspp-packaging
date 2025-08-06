@@ -63,7 +63,7 @@ mkdir -p "$MODULES_DIR"
 
 # Clone or update the repository
 TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 echo "Fetching modules from repository..."
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$TEMP_DIR/openspp-modules" 2>/dev/null || {
@@ -98,11 +98,13 @@ echo ""
 
 # Generate module list file
 MODULE_LIST_FILE="$PROJECT_ROOT/MODULES.txt"
-echo "# OpenSPP Modules" > "$MODULE_LIST_FILE"
-echo "# Generated on: $(date)" >> "$MODULE_LIST_FILE"
-echo "# From: $REPO_URL ($BRANCH)" >> "$MODULE_LIST_FILE"
-echo "" >> "$MODULE_LIST_FILE"
-ls -1 "$MODULES_DIR" | sort >> "$MODULE_LIST_FILE"
+{
+    echo "# OpenSPP Modules"
+    echo "# Generated on: $(date)"
+    echo "# From: $REPO_URL ($BRANCH)"
+    echo ""
+    find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+} > "$MODULE_LIST_FILE"
 
 echo "Module list saved to: MODULES.txt"
 

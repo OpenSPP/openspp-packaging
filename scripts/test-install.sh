@@ -79,7 +79,7 @@ test_rpm_package() {
     echo "Testing RPM package..."
     
     # Check package info
-    RPM_FILE=$(ls "$PROJECT_ROOT/dist/"*.rpm 2>/dev/null | head -1)
+    RPM_FILE=$(find "$PROJECT_ROOT/dist/" -name "*.rpm" -type f | head -1)
     if [ -f "$RPM_FILE" ]; then
         rpm -qip "$RPM_FILE"
         echo "✓ RPM package test passed"
@@ -98,7 +98,7 @@ test_deb_package() {
     echo "Testing DEB package..."
     
     # Check package info
-    DEB_FILE=$(ls "$PROJECT_ROOT/dist/"*.deb 2>/dev/null | head -1)
+    DEB_FILE=$(find "$PROJECT_ROOT/dist/" -name "*.deb" -type f | head -1)
     if [ -f "$DEB_FILE" ]; then
         dpkg -I "$DEB_FILE"
         echo "✓ DEB package test passed"
@@ -110,9 +110,13 @@ test_deb_package() {
 # Run tests based on available packages
 cd "$PROJECT_ROOT"
 
-if [ -f dist/*.whl ]; then
-    test_python_package
-fi
+# Check if any .whl files exist
+for wheel_file in dist/*.whl; do
+    if [ -f "$wheel_file" ]; then
+        test_python_package
+        break
+    fi
+done
 
 test_docker_image
 test_rpm_package

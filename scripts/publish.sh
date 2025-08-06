@@ -77,7 +77,7 @@ publish_docker() {
 publish_rpm() {
     echo "Publishing RPM package..."
     
-    RPM_FILE=$(ls "$PROJECT_ROOT/dist/"*.rpm 2>/dev/null | head -1)
+    RPM_FILE=$(find "$PROJECT_ROOT/dist/" -name "*.rpm" -type f | head -1)
     if [ ! -f "$RPM_FILE" ]; then
         echo "No RPM package found"
         return
@@ -102,7 +102,7 @@ publish_rpm() {
 publish_deb() {
     echo "Publishing DEB package..."
     
-    DEB_FILE=$(ls "$PROJECT_ROOT/dist/"*.deb 2>/dev/null | head -1)
+    DEB_FILE=$(find "$PROJECT_ROOT/dist/" -name "*.deb" -type f | head -1)
     if [ ! -f "$DEB_FILE" ]; then
         echo "No DEB package found"
         return

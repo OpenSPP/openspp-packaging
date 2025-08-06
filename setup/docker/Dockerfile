@@ -60,10 +60,10 @@ RUN mkdir -p /mnt/openspp-addons \
 COPY --chown=odoo:odoo ./openspp/addons /mnt/openspp-addons
 
 # Copy configuration template
-COPY --chown=odoo:odoo openspp.conf /etc/openspp/openspp.conf.template
+COPY --chown=odoo:odoo setup/docker/openspp.conf /etc/openspp/openspp.conf.template
 
 # Copy custom entrypoint
-COPY --chown=odoo:odoo entrypoint.sh /openspp-entrypoint.sh
+COPY --chown=odoo:odoo setup/docker/entrypoint.sh /openspp-entrypoint.sh
 RUN chmod +x /openspp-entrypoint.sh
 
 # Set ownership
