@@ -27,7 +27,7 @@ USER root
 # Install additional system dependencies for OpenSPP
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        # Basic utilities first
+        # Basic utilities
         git \
         curl \
         wget \
@@ -36,18 +36,15 @@ RUN apt-get update \
         python3-dev \
         gcc \
         g++ \
-    && apt-get install -y --no-install-recommends \
         # Image processing
         libzbar0 \
         libzbar-dev \
-    && apt-get install -y --no-install-recommends \
-        # Geospatial libraries (install separately as they can be more fragile)
-        gdal-bin \
-        libgdal-dev \
-        libgeos-dev \
-        libproj-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Note: Geospatial libraries (gdal-bin, libgdal-dev, libgeos-dev, libproj-dev) 
+# are commented out due to PostgreSQL version conflicts with the base Odoo image.
+# They can be added back later if needed by resolving the libpq version conflict.
 
 # Install additional Python packages for OpenSPP
 COPY requirements.txt /tmp/openspp-requirements.txt

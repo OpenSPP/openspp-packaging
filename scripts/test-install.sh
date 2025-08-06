@@ -18,6 +18,7 @@ test_python_package() {
     # Create virtual environment
     VENV_DIR=$(mktemp -d)
     python3 -m venv "$VENV_DIR"
+    # shellcheck source=/dev/null
     source "$VENV_DIR/bin/activate"
     
     # Install package
