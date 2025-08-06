@@ -46,10 +46,11 @@ RUN apt-get update \
 # are commented out due to PostgreSQL version conflicts with the base Odoo image.
 # They can be added back later if needed by resolving the libpq version conflict.
 
-# Install additional Python packages for OpenSPP
-COPY requirements.txt /tmp/openspp-requirements.txt
-RUN pip3 install --no-cache-dir -r /tmp/openspp-requirements.txt && \
-    rm /tmp/openspp-requirements.txt
+# Install additional Python packages for OpenSPP  
+# Use Docker-specific requirements file with compatible versions
+COPY docker-requirements.txt /tmp/docker-requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/docker-requirements.txt && \
+    rm /tmp/docker-requirements.txt
 
 # Create directories for OpenSPP
 RUN mkdir -p /mnt/openspp-addons \

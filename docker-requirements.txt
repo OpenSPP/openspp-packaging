@@ -1,0 +1,71 @@
+# Docker-compatible OpenSPP dependencies
+# Core packages that should work in the Odoo Docker environment
+
+# Core Odoo dependencies
+asn1crypto
+babel>=1.0
+cbor2
+chardet
+cryptography
+decorator
+docutils
+greenlet
+idna
+Jinja2
+lxml
+MarkupSafe
+num2words
+ofxparse
+openpyxl
+passlib
+pillow
+polib
+psutil
+psycopg2-binary>=2.2
+pyopenssl
+PyPDF2
+pyserial
+python-dateutil
+python-stdnum
+pytz
+pyusb>=1.0.0b1
+qrcode
+reportlab
+requests
+urllib3
+vobject
+werkzeug
+xlrd
+xlsxwriter
+xlwt
+
+# Essential OpenSPP dependencies (without problematic geospatial libs)
+pyjwt>=2.4.0
+python-jose[cryptography]==3.3.0
+sqlalchemy>=1.4.0
+redis>=4.0.0
+celery>=5.0.0
+# Use compatible numpy version range
+numpy>=1.22.2,<2.3.0
+validators>=0.18.0
+phonenumbers>=8.12.0
+python-magic>=0.4.24
+boto3>=1.35.12
+faker
+flower
+twilio>=9.2.4
+unicodecsv
+unidecode
+apispec>=4.0.0
+cachetools
+cerberus
+jsondiff
+pydantic
+pyquerystring
+typing-extensions
+simplejson
+fastapi==0.112.2
+python-multipart
+
+# Note: Geospatial libraries (shapely, geoalchemy2, pyproj, fiona, rasterio) 
+# and other complex dependencies are excluded to avoid compatibility issues
