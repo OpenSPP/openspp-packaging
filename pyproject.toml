@@ -1,6 +1,6 @@
 [project]
 name = "openspp"
-dynamic = ["version", "description", "readme", "license", "authors", "classifiers", "dependencies"]
+dynamic = ["version", "description", "readme", "license", "authors", "classifiers", "dependencies", "scripts", "entry-points"]
 requires-python = ">=3.10"
 
 [build-system]
