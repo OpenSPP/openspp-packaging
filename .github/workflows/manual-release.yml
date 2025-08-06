@@ -1,0 +1,210 @@
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 17.0.2)'
+        required: true
+        type: string
+      modules_ref:
+        description: 'Branch/tag of openspp-modules'
+        required: true
+        default: '17.0'
+        type: string
+      release_type:
+        description: 'Release type'
+        required: true
+        type: choice
+        options:
+          - stable
+          - beta
+          - rc
+      publish_targets:
+        description: 'Where to publish (comma-separated: pypi,docker,github)'
+        required: true
+        default: 'github'  # Only GitHub releases by default
+        type: string
+      dry_run:
+        description: 'Dry run (build only, no publish)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  validate-inputs:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      publish_pypi: ${{ steps.validate.outputs.publish_pypi }}
+      publish_docker: ${{ steps.validate.outputs.publish_docker }}
+      publish_github: ${{ steps.validate.outputs.publish_github }}
+    steps:
+      - name: Validate version format
+        id: validate
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          RELEASE_TYPE="${{ github.event.inputs.release_type }}"
+          
+          # Append suffix for non-stable releases
+          if [ "$RELEASE_TYPE" != "stable" ]; then
+            VERSION="${VERSION}-${RELEASE_TYPE}"
+          fi
+          
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            exit 1
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Parse publish targets
+          TARGETS="${{ github.event.inputs.publish_targets }}"
+          
+          if [[ "$TARGETS" == *"pypi"* ]]; then
+            echo "publish_pypi=true" >> $GITHUB_OUTPUT
+          else
+            echo "publish_pypi=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [[ "$TARGETS" == *"docker"* ]]; then
+            echo "publish_docker=true" >> $GITHUB_OUTPUT
+          else
+            echo "publish_docker=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [[ "$TARGETS" == *"github"* ]]; then
+            echo "publish_github=true" >> $GITHUB_OUTPUT
+          else
+            echo "publish_github=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "✅ Version validated: $VERSION"
+
+  build:
+    name: Build Packages
+    needs: validate-inputs
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.validate-inputs.outputs.version }}
+      modules_ref: ${{ github.event.inputs.modules_ref }}
+
+  test-packages:
+    name: Test Built Packages
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event.inputs.dry_run == 'false'
+    steps:
+      - name: Download Python packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-packages
+          path: dist/
+      
+      - name: Test Python package
+        run: |
+          python3 -m venv test-env
+          source test-env/bin/activate
+          pip install dist/*.whl
+          python -c "import openspp; print(f'OpenSPP version: {openspp.__version__}')"
+          deactivate
+          echo "✅ Python package test passed"
+
+  publish:
+    name: Publish Release
+    needs: [validate-inputs, build, test-packages]
+    if: github.event.inputs.dry_run == 'false'
+    uses: ./.github/workflows/publish.yml
+    with:
+      version: ${{ needs.validate-inputs.outputs.version }}
+      publish_pypi: ${{ needs.validate-inputs.outputs.publish_pypi }}
+      publish_docker: ${{ needs.validate-inputs.outputs.publish_docker }}
+      publish_github: ${{ needs.validate-inputs.outputs.publish_github }}
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  create-tag:
+    name: Create Git Tag
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, publish]
+    if: github.event.inputs.dry_run == 'false'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Create and push tag
+        run: |
+          VERSION="${{ needs.validate-inputs.outputs.version }}"
+          TAG="v$VERSION"
+          
+          # Check if tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "⚠️  Tag $TAG already exists, skipping tag creation"
+            exit 0
+          fi
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create annotated tag
+          git tag -a "$TAG" -m "Manual release $VERSION
+          
+          Released by: @${{ github.actor }}
+          Release type: ${{ github.event.inputs.release_type }}
+          Modules ref: ${{ github.event.inputs.modules_ref }}
+          Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          
+          git push origin "$TAG"
+          
+          echo "✅ Created and pushed tag: $TAG"
+
+  summary:
+    name: Release Summary
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, build, publish]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          VERSION="${{ needs.validate-inputs.outputs.version }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          
+          echo "# 📦 Manual Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type**: ${{ github.event.inputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Modules Reference**: ${{ github.event.inputs.modules_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$DRY_RUN" == "true" ]; then
+            echo "### ⚠️ Dry Run Mode" >> $GITHUB_STEP_SUMMARY
+            echo "This was a dry run. No packages were published." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To perform the actual release, run the workflow again with 'Dry run' unchecked." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 📤 Published To" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "${{ needs.validate-inputs.outputs.publish_pypi }}" == "true" ]; then
+              echo "- ✅ PyPI: [openspp $VERSION](https://pypi.org/project/openspp/$VERSION/)" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            if [ "${{ needs.validate-inputs.outputs.publish_docker }}" == "true" ]; then
+              echo "- ✅ Docker Hub: [openspp/openspp:$VERSION](https://hub.docker.com/r/openspp/openspp/tags)" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            if [ "${{ needs.validate-inputs.outputs.publish_github }}" == "true" ]; then
+              echo "- ✅ GitHub Release: [v$VERSION](https://github.com/${{ github.repository }}/releases/tag/v$VERSION)" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Workflow run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*" >> $GITHUB_STEP_SUMMARY

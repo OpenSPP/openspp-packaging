@@ -1,0 +1,14 @@
+# Minimal test manifest
+odoo:
+  url: "https://github.com/odoo/odoo.git"
+  ref: "17.0"
+
+python_requirements: "requirements.txt"
+
+addons:
+  # Just test with one small repo
+  openspp_modules:
+    url: "https://github.com/OpenSPP/openspp-modules.git"
+    ref: "17.0"
+    modules:
+      - "spp_base"  # Just one module for testing

@@ -1,0 +1,106 @@
+# OpenSPP Dependencies Manifest
+# This is the single source of truth for all OpenSPP dependencies
+# Run 'python vendorize.py --lock' after making changes
+#
+# IMPORTANT: When updating dependencies:
+# 1. Always run tests after changes: ./test-quick.sh
+# 2. Commit both dependencies.yaml and dependencies.lock.yaml
+# 3. Document breaking changes in CHANGELOG
+
+# Odoo core framework
+# This is the base ERP framework that OpenSPP is built on
+odoo:
+  url: "https://github.com/odoo/odoo.git"
+  ref: "17.0"  # Stable release branch - resolved to specific commit in lockfile
+
+# Python package requirements
+# See requirements.txt for Python libraries (pandas, numpy, etc.)
+# Dev dependencies are in requirements-dev.txt
+python_requirements: "requirements.txt"
+
+# Odoo addon repositories
+# Key names determine the destination directory in vendor/addons/
+# The order here doesn't matter - Odoo loads modules based on dependencies
+addons:
+  # OpenSPP core modules - Main social protection functionality
+  # Contains: beneficiary management, program cycles, grievance handling
+  openspp_modules:
+    url: "https://github.com/openspp/openspp-modules.git"
+    ref: "openspp-17.0.1.2.1"  # Specific tested version from openspp-docker
+    # Include all modules from this repo
+
+  # OpenG2P Registry - Core beneficiary registry and identity management
+  # Provides: individual/group registries, ID management, deduplication
+  openg2p_registry:
+    url: "https://github.com/OpenSPP/openg2p-registry.git"
+    ref: "17.0-develop-openspp"  # OpenSPP-specific branch with compatibility patches
+    # Include all modules
+
+  # OpenG2P Program - Program management and eligibility frameworks
+  # Provides: program enrollment, eligibility rules, entitlement calculation
+  openg2p_program:
+    url: "https://github.com/OpenSPP/openg2p-program.git"
+    ref: "17.0-develop-openspp"  # OpenSPP-specific branch with compatibility patches
+    # Include all modules
+
+  # OpenG2P Auth - Authentication and authorization modules
+  # Provides: OIDC integration, JWT tokens, role-based access control
+  openg2p_auth:
+    url: "https://github.com/OpenSPP/openg2p-auth.git"
+    ref: "17.0-develop-openspp"  # OpenSPP-specific branch with compatibility patches
+    # Include all modules
+
+  # OpenG2P REST Framework - FastAPI integration for REST APIs
+  # Only including core API framework modules, not all endpoints
+  openg2p_rest_framework:
+    url: "https://github.com/OpenSPP/openg2p-rest-framework.git"
+    ref: "17.0-openspp"  # OpenSPP-compatible version
+    modules:  # Selective inclusion to reduce footprint
+      - "fastapi"            # Core FastAPI integration
+      - "extendable"         # Extendable models framework
+      - "extendable_fastapi" # FastAPI + extendable bridge
+
+  # MUK IT modules - Enhanced UI/UX components
+  # Provides: file preview, grid widgets, session management, themes
+  muk_addons:
+    url: "https://github.com/OpenSPP/mukit-modules.git"
+    ref: "17.0-openspp"  # Fork maintained for OpenSPP compatibility
+    # Include all modules - UI components are interdependent
+
+  # OCA modules - Community modules (selective inclusion)
+  # Only including specific modules we actually use to minimize footprint
+  
+  # Server tools - Technical infrastructure modules
+  oca_server_tools:
+    url: "https://github.com/OCA/server-tools.git"
+    ref: "17.0"  # Official OCA stable branch
+    modules:
+      - "base_multi_image"  # Multiple image support for records
+
+  # Server UX - User experience improvements
+  oca_server_ux:
+    url: "https://github.com/OCA/server-ux.git"
+    ref: "17.0"  # Official OCA stable branch
+    modules:
+      - "mass_editing"  # Bulk edit operations for records
+
+  # Queue/Job - Background job processing
+  oca_queue:
+    url: "https://github.com/OCA/queue.git"
+    ref: "17.0"  # Official OCA stable branch
+    modules:
+      - "queue_job"  # Async job queue for long-running operations
+
+  # Server Backend - Core backend improvements
+  # Including all modules as they provide essential infrastructure
+  oca_server_backend:
+    url: "https://github.com/OCA/server-backend.git"
+    ref: "17.0"  # Official OCA stable branch
+    # Include all modules - provides monitoring, performance, debugging tools
+
+  # Web API - Additional API endpoints
+  oca_web_api:
+    url: "https://github.com/OCA/web-api.git"
+    ref: "17.0"  # Official OCA stable branch
+    modules:
+      - "endpoint_route_handler"  # Custom API endpoint routing

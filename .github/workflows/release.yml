@@ -1,0 +1,218 @@
+name: Release OpenSPP
+
+on:
+  # Weekly automated releases
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 2 AM UTC
+  
+  # Tag-based releases
+  push:
+    tags:
+      - 'v*.*.*'
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 17.0.2)'
+        required: false
+        type: string
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+          - rc
+          - weekly
+      dry_run:
+        description: 'Dry run (build only, no publishing)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  determine-version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_type: ${{ steps.version.outputs.release_type }}
+      should_publish: ${{ steps.version.outputs.should_publish }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Determine version and release type
+        id: version
+        run: |
+          # Determine version
+          if [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Tag release - use tag as version
+            VERSION="${GITHUB_REF#refs/tags/}"
+            VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+            RELEASE_TYPE="stable"
+            SHOULD_PUBLISH="true"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            # Weekly release - date-based version
+            BASE_VERSION="17.0"
+            DATE_SUFFIX=$(date +%Y%m%d)
+            VERSION="${BASE_VERSION}.${DATE_SUFFIX}"
+            RELEASE_TYPE="weekly"
+            SHOULD_PUBLISH="true"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual trigger
+            if [[ -n "${{ inputs.version }}" ]]; then
+              VERSION="${{ inputs.version }}"
+            else
+              # Generate version based on release type
+              BASE_VERSION="17.0"
+              if [[ "${{ inputs.release_type }}" == "weekly" ]]; then
+                VERSION="${BASE_VERSION}.$(date +%Y%m%d)"
+              else
+                # For manual triggers without version, use a timestamp
+                VERSION="${BASE_VERSION}.$(date +%Y%m%d.%H%M%S)"
+              fi
+            fi
+            RELEASE_TYPE="${{ inputs.release_type }}"
+            SHOULD_PUBLISH="${{ !inputs.dry_run }}"
+          else
+            echo "Unexpected event type: ${{ github.event_name }}"
+            exit 1
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "release_type=${RELEASE_TYPE}" >> $GITHUB_OUTPUT
+          echo "should_publish=${SHOULD_PUBLISH}" >> $GITHUB_OUTPUT
+          
+          echo "Building version: ${VERSION}"
+          echo "Release type: ${RELEASE_TYPE}"
+          echo "Will publish: ${SHOULD_PUBLISH}"
+  
+  build:
+    name: Build Packages
+    needs: determine-version
+    uses: ./.github/workflows/build-packages.yml
+    with:
+      version: ${{ needs.determine-version.outputs.version }}
+  
+  publish-github:
+    name: Publish to GitHub Releases
+    needs: [determine-version, build]
+    if: needs.determine-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Create release notes
+        id: notes
+        run: |
+          VERSION="${{ needs.determine-version.outputs.version }}"
+          RELEASE_TYPE="${{ needs.determine-version.outputs.release_type }}"
+          
+          cat > release_notes.md << EOF
+          # OpenSPP ${VERSION}
+          
+          Release type: ${RELEASE_TYPE}
+          Date: $(date -u +"%Y-%m-%d %H:%M UTC")
+          
+          ## Installation
+          
+          ### Python Package
+          \`\`\`bash
+          pip install openspp-${VERSION}-py3-none-any.whl
+          \`\`\`
+          
+          ### Debian/Ubuntu
+          \`\`\`bash
+          sudo dpkg -i openspp_${VERSION}_all.deb
+          sudo apt-get install -f
+          \`\`\`
+          
+          ### Red Hat/Fedora
+          \`\`\`bash
+          sudo rpm -i openspp-${VERSION}-1.noarch.rpm
+          \`\`\`
+          
+          ### Windows
+          Run the installer: \`openspp-${VERSION}-setup.exe\`
+          
+          ### Docker
+          \`\`\`bash
+          docker load -i openspp-docker-${VERSION}.tar
+          docker run -d -p 8069:8069 openspp/openspp:${VERSION}
+          \`\`\`
+          
+          ## Package Contents
+          
+          This release includes:
+          - Odoo 17.0 framework
+          - OpenSPP modules
+          - OpenG2P dependencies
+          - OCA community modules
+          - All required Python dependencies
+          
+          For detailed documentation, visit: https://docs.openspp.org
+          EOF
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.determine-version.outputs.version }}
+          name: OpenSPP ${{ needs.determine-version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ needs.determine-version.outputs.release_type != 'stable' }}
+          files: |
+            artifacts/**/*.whl
+            artifacts/**/*.tar.gz
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.exe
+            artifacts/**/*.tar
+  
+  # Note: PyPI and Docker Hub publishing are disabled by default
+  # Uncomment and configure when ready to publish externally
+  
+  # publish-pypi:
+  #   name: Publish to PyPI
+  #   needs: [determine-version, build]
+  #   if: needs.determine-version.outputs.should_publish == 'true'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download Python packages
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: python-packages
+  #         path: dist
+  #     
+  #     - name: Publish to PyPI
+  #       uses: pypa/gh-action-pypi-publish@v1
+  #       with:
+  #         password: ${{ secrets.PYPI_API_TOKEN }}
+  
+  # publish-docker:
+  #   name: Publish to Docker Hub
+  #   needs: [determine-version, build]
+  #   if: needs.determine-version.outputs.should_publish == 'true'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download Docker image
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: docker-image
+  #     
+  #     - name: Load and push Docker image
+  #       run: |
+  #         docker load -i openspp-docker-*.tar
+  #         echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+  #         docker push openspp/openspp:${{ needs.determine-version.outputs.version }}
+  #         docker push openspp/openspp:17.0
+  #         docker push openspp/openspp:latest

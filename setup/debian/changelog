@@ -1,0 +1,9 @@
+openspp (VERSION) stable; urgency=medium
+
+  * Initial release of OpenSPP packaging
+  * Based on Odoo 17.0 framework
+  * Includes all OpenSPP modules for social protection programs
+  * Full support for beneficiary registry, program management, and entitlements
+  * Integrated payment processing and reporting capabilities
+
+ -- OpenSPP Contributors <info@openspp.org>  TIMESTAMP

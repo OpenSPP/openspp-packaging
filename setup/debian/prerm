@@ -1,0 +1,30 @@
+#!/bin/sh
+# prerm script for openspp
+
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop the service if it's running
+        if systemctl is-active --quiet openspp.service; then
+            systemctl stop openspp.service
+        fi
+        
+        # Disable the service
+        if systemctl is-enabled --quiet openspp.service; then
+            systemctl disable openspp.service
+        fi
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

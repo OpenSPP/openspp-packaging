@@ -1,0 +1,62 @@
+odoo:
+  url: https://github.com/odoo/odoo.git
+  ref: '17.0'
+  commit: 2026212d0f7ffc217be3c6a2ff2abe5288c18afb
+python_requirements: requirements.txt
+addons:
+  openspp_modules:
+    url: https://github.com/openspp/openspp-modules.git
+    ref: openspp-17.0.1.2.1
+    commit: 5c84a01aa309b060673f28b59c62b6608b9d5291
+  openg2p_registry:
+    url: https://github.com/OpenSPP/openg2p-registry.git
+    ref: 17.0-develop-openspp
+    commit: dea4b37f6015c35afe3b10a050332ec1bbc0a316
+  openg2p_program:
+    url: https://github.com/OpenSPP/openg2p-program.git
+    ref: 17.0-develop-openspp
+    commit: b41f79b29cc68e74a435d27d49d4793bdd2b1091
+  openg2p_auth:
+    url: https://github.com/OpenSPP/openg2p-auth.git
+    ref: 17.0-develop-openspp
+    commit: 5b0db8e308a22469c63f6f4638f6de760f9aa8fa
+  openg2p_rest_framework:
+    url: https://github.com/OpenSPP/openg2p-rest-framework.git
+    ref: 17.0-openspp
+    modules:
+    - fastapi
+    - extendable
+    - extendable_fastapi
+    commit: 9ee9adde9670320d9966d17c97a3551a16793a66
+  muk_addons:
+    url: https://github.com/OpenSPP/mukit-modules.git
+    ref: 17.0-openspp
+    commit: 502ca0bb587ca6a877dc9a18be58443cd7913313
+  oca_server_tools:
+    url: https://github.com/OCA/server-tools.git
+    ref: '17.0'
+    modules:
+    - base_multi_image
+    commit: 5a7298c894ace682b2b23b569533c3b8e4d5d962
+  oca_server_ux:
+    url: https://github.com/OCA/server-ux.git
+    ref: '17.0'
+    modules:
+    - mass_editing
+    commit: 4ff660e45ff5d22e092af417ec7b9be695ff9216
+  oca_queue:
+    url: https://github.com/OCA/queue.git
+    ref: '17.0'
+    modules:
+    - queue_job
+    commit: 11122f429cd512dd1b1cfa254b0439a1dd0462ac
+  oca_server_backend:
+    url: https://github.com/OCA/server-backend.git
+    ref: '17.0'
+    commit: 92e4fe5d6743d90f0513487f433bbdc19ff6835e
+  oca_web_api:
+    url: https://github.com/OCA/web-api.git
+    ref: '17.0'
+    modules:
+    - endpoint_route_handler
+    commit: e5f0f77f89f17b46e7f3fb9ccad13158cda6e89e

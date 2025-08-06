@@ -1,0 +1,256 @@
+name: Build OpenSPP Packages
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        type: string
+    outputs:
+      source_tarball:
+        description: 'Source tarball artifact name'
+        value: ${{ jobs.vendor.outputs.source_tarball }}
+
+jobs:
+  vendor:
+    name: Create Source Tarball
+    runs-on: ubuntu-latest
+    outputs:
+      source_tarball: openspp-${{ inputs.version }}-source.tar.gz
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyYAML
+      
+      - name: Create lockfile and vendor dependencies
+        run: |
+          python vendorize.py --lock
+      
+      - name: Create source tarball
+        run: |
+          python vendorize.py --tarball ${{ inputs.version }}
+      
+      - name: Upload source tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-tarball
+          path: openspp-${{ inputs.version }}-source.tar.gz
+
+  build-python:
+    name: Build Python Package
+    needs: vendor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+      
+      - name: Extract source
+        run: |
+          tar xzf openspp-${{ inputs.version }}-source.tar.gz
+          cd openspp-${{ inputs.version }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel setuptools
+      
+      - name: Build wheel and sdist
+        working-directory: openspp-${{ inputs.version }}
+        run: |
+          python -m build
+      
+      - name: Upload Python packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-packages
+          path: openspp-${{ inputs.version }}/dist/*
+
+  build-deb:
+    name: Build Debian Package
+    needs: vendor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout packaging files
+        uses: actions/checkout@v4
+        sparse-checkout: |
+          setup/debian
+      
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+      
+      - name: Extract source
+        run: |
+          tar xzf openspp-${{ inputs.version }}-source.tar.gz
+      
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev debhelper dh-python python3-all python3-setuptools
+      
+      - name: Prepare Debian package
+        run: |
+          PKG_DIR="openspp_${{ inputs.version }}"
+          mv openspp-${{ inputs.version }} ${PKG_DIR}
+          cp -r setup/debian ${PKG_DIR}/debian
+          
+          # Update changelog
+          sed -i "s/VERSION/${{ inputs.version }}/g" ${PKG_DIR}/debian/changelog
+          sed -i "s/TIMESTAMP/$(date -R)/g" ${PKG_DIR}/debian/changelog
+      
+      - name: Build DEB package
+        run: |
+          cd openspp_${{ inputs.version }}
+          dpkg-buildpackage -us -uc -b
+      
+      - name: Upload DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: "*.deb"
+
+  build-rpm:
+    name: Build RPM Package
+    needs: vendor
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:9
+    steps:
+      - name: Install dependencies
+        run: |
+          dnf install -y rpm-build python3-devel git tar gzip
+      
+      - name: Checkout packaging files
+        uses: actions/checkout@v4
+        sparse-checkout: |
+          setup/rpm
+      
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+      
+      - name: Prepare RPM build
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cp openspp-${{ inputs.version }}-source.tar.gz ~/rpmbuild/SOURCES/
+          cp setup/rpm/openspp.spec ~/rpmbuild/SPECS/
+      
+      - name: Build RPM
+        run: |
+          rpmbuild -ba --define "version ${{ inputs.version }}" ~/rpmbuild/SPECS/openspp.spec
+      
+      - name: Upload RPM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-package
+          path: ~/rpmbuild/RPMS/noarch/*.rpm
+
+  build-windows:
+    name: Build Windows Installer
+    needs: vendor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout packaging files
+        uses: actions/checkout@v4
+        sparse-checkout: |
+          setup/windows
+      
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+      
+      - name: Extract source
+        run: |
+          tar xzf openspp-${{ inputs.version }}-source.tar.gz
+      
+      - name: Install Wine and NSIS
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y wine wine32 wine64 winbind wget
+          
+          # Download and install NSIS
+          NSIS_VERSION="3.09"
+          wget -q -O /tmp/nsis.exe \
+            "https://downloads.sourceforge.net/project/nsis/NSIS%203/${NSIS_VERSION}/nsis-${NSIS_VERSION}-setup.exe"
+          
+          export WINEARCH=win64
+          export WINEPREFIX=$HOME/.wine
+          wineboot -u
+          wine /tmp/nsis.exe /S
+          sleep 10
+      
+      - name: Build installer
+        run: |
+          # Update version in NSIS script
+          sed -i "s/{{VERSION}}/${{ inputs.version }}/g" setup/windows/openspp.nsi
+          
+          # Build with NSIS in Wine
+          export WINEPREFIX=$HOME/.wine
+          NSIS_PATH="$HOME/.wine/drive_c/Program Files (x86)/NSIS/makensis.exe"
+          [ ! -f "$NSIS_PATH" ] && NSIS_PATH="$HOME/.wine/drive_c/Program Files/NSIS/makensis.exe"
+          
+          wine "$NSIS_PATH" setup/windows/openspp.nsi
+      
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: setup/windows/*.exe
+
+  build-docker:
+    name: Build Docker Image
+    needs: vendor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: setup/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            openspp/openspp:${{ inputs.version }}
+            openspp/openspp:17.0
+            openspp/openspp:latest
+          build-args: |
+            VERSION=${{ inputs.version }}
+            SOURCE_TARBALL=openspp-${{ inputs.version }}-source.tar.gz
+          outputs: type=docker,dest=openspp-docker-${{ inputs.version }}.tar
+      
+      - name: Upload Docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: openspp-docker-*.tar

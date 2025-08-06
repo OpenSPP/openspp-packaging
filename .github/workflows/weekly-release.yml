@@ -1,0 +1,194 @@
+name: Weekly Release
+
+on:
+  schedule:
+    # Run every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      modules_ref:
+        description: 'Branch/tag of openspp-modules to use'
+        required: false
+        default: '17.0'
+        type: string
+      skip_publish:
+        description: 'Skip publishing (build only)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  check-changes:
+    name: Check for Changes
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+      last_release: ${{ steps.check.outputs.last_release }}
+    steps:
+      - name: Checkout packaging repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check for changes since last weekly release
+        id: check
+        run: |
+          # Get the last weekly release tag
+          LAST_WEEKLY=$(git tag -l "v17.0.*" | grep -E "v17\.0\.[0-9]+\.[0-9]{8}$" | sort -V | tail -1)
+          
+          if [ -z "$LAST_WEEKLY" ]; then
+            echo "No previous weekly release found"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "last_release=none" >> $GITHUB_OUTPUT
+          else
+            echo "Last weekly release: $LAST_WEEKLY"
+            echo "last_release=$LAST_WEEKLY" >> $GITHUB_OUTPUT
+            
+            # Check for changes in packaging repo
+            PACKAGING_CHANGES=$(git diff --name-only $LAST_WEEKLY..HEAD | wc -l)
+            
+            # Check for changes in modules repo
+            MODULES_REPO_URL="https://api.github.com/repos/OpenSPP/openspp-modules"
+            LAST_RELEASE_DATE=$(git log -1 --format=%aI $LAST_WEEKLY)
+            
+            # Get commits since last release
+            MODULES_CHANGES=$(curl -s "$MODULES_REPO_URL/commits?sha=${{ github.event.inputs.modules_ref || '17.0' }}&since=$LAST_RELEASE_DATE" | jq '. | length')
+            
+            if [ "$PACKAGING_CHANGES" -gt 0 ] || [ "$MODULES_CHANGES" -gt 0 ]; then
+              echo "Changes detected: Packaging=$PACKAGING_CHANGES, Modules=$MODULES_CHANGES"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            else
+              echo "No changes since last release"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: Generate summary
+        run: |
+          if [ "${{ steps.check.outputs.has_changes }}" == "true" ]; then
+            echo "### ✅ Changes Detected" >> $GITHUB_STEP_SUMMARY
+            echo "A new weekly release will be created." >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.check.outputs.last_release }}" != "none" ]; then
+              echo "Changes since: ${{ steps.check.outputs.last_release }}" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ⏭️ No Changes" >> $GITHUB_STEP_SUMMARY
+            echo "No changes detected since ${{ steps.check.outputs.last_release }}." >> $GITHUB_STEP_SUMMARY
+            echo "Skipping weekly release." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  generate-version:
+    name: Generate Version
+    runs-on: ubuntu-latest
+    needs: check-changes
+    if: needs.check-changes.outputs.has_changes == 'true'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Generate weekly version
+        id: version
+        run: |
+          # Get base version from release.py
+          BASE_VERSION=$(python3 -c "exec(open('openspp/release.py').read()); print(version.split('.')[0:3])" | tr -d "[]',")
+          BASE_VERSION=$(echo $BASE_VERSION | tr ' ' '.')
+          
+          # Append current date
+          WEEKLY_VERSION="${BASE_VERSION}.$(date +%Y%m%d)"
+          
+          echo "version=$WEEKLY_VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $WEEKLY_VERSION"
+
+  build:
+    name: Build Packages
+    needs: [check-changes, generate-version]
+    if: needs.check-changes.outputs.has_changes == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.generate-version.outputs.version }}
+      modules_ref: ${{ github.event.inputs.modules_ref || '17.0' }}
+
+  publish:
+    name: Publish Packages
+    needs: [generate-version, build]
+    if: |
+      needs.check-changes.outputs.has_changes == 'true' && 
+      github.event.inputs.skip_publish != 'true'
+    uses: ./.github/workflows/publish.yml
+    with:
+      version: ${{ needs.generate-version.outputs.version }}
+      publish_pypi: false  # Disabled for now
+      publish_docker: false  # Disabled for now
+      publish_github: true  # Only GitHub releases
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  tag-release:
+    name: Tag Release
+    runs-on: ubuntu-latest
+    needs: [generate-version, publish]
+    if: |
+      needs.check-changes.outputs.has_changes == 'true' && 
+      github.event.inputs.skip_publish != 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Create and push tag
+        run: |
+          VERSION="${{ needs.generate-version.outputs.version }}"
+          TAG="v$VERSION"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git tag -a "$TAG" -m "Weekly release $VERSION"
+          git push origin "$TAG"
+          
+          echo "✅ Created tag: $TAG"
+
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [check-changes, generate-version, publish]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          if [ "${{ needs.check-changes.outputs.has_changes }}" != "true" ]; then
+            echo "## 📦 Weekly Release - No Changes" >> $GITHUB_STEP_SUMMARY
+            echo "No changes detected, weekly release skipped." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.publish.result }}" == "success" ]; then
+            echo "## 📦 Weekly Release - Success" >> $GITHUB_STEP_SUMMARY
+            echo "Version: **${{ needs.generate-version.outputs.version }}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Published to:" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ GitHub: [Releases](https://github.com/${{ github.repository }}/releases)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Note**: PyPI and Docker Hub publishing are currently disabled." >> $GITHUB_STEP_SUMMARY
+            echo "Packages are available for download from GitHub Releases." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## 📦 Weekly Release - Failed" >> $GITHUB_STEP_SUMMARY
+            echo "The weekly release process encountered errors." >> $GITHUB_STEP_SUMMARY
+            echo "Check the workflow logs for details." >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Weekly Release Failed - ${new Date().toISOString().split('T')[0]}`,
+              body: `The weekly release workflow failed. Please check the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`,
+              labels: ['release', 'automated', 'bug']
+            });
+            console.log(`Created issue #${issue.data.number}`)

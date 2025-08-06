@@ -1,0 +1,51 @@
+# Include package metadata
+include README.md
+include LICENSE
+include requirements.txt
+include MANIFEST.in
+
+# Include setup files
+include setup.py
+recursive-include setup *.py *.sh *.bat *.nsi *.conf *.yml *.yaml
+
+# Include OpenSPP package files
+recursive-include openspp *.py
+recursive-include openspp/addons *.py *.xml *.csv *.yml *.yaml *.js *.css *.scss *.less
+recursive-include openspp/addons *.html *.qweb *.json *.po *.pot *.txt *.rst *.md
+recursive-include openspp/addons *.png *.jpg *.jpeg *.gif *.svg *.ico
+recursive-include openspp/addons *.ttf *.otf *.woff *.woff2 *.eot
+recursive-include openspp/addons *.pdf *.xls *.xlsx *.doc *.docx
+
+# Include static files
+recursive-include openspp/addons/*/static *
+
+# Include data files
+recursive-include openspp/addons/*/data *
+recursive-include openspp/addons/*/demo *
+recursive-include openspp/addons/*/security *
+recursive-include openspp/addons/*/views *
+recursive-include openspp/addons/*/report *
+recursive-include openspp/addons/*/wizard *
+recursive-include openspp/addons/*/i18n *
+
+# Include documentation
+recursive-include openspp/addons/*/doc *
+recursive-include openspp/addons/*/readme *
+
+# Exclude compiled and temporary files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.swp
+global-exclude .DS_Store
+global-exclude __pycache__
+global-exclude .git
+global-exclude .gitignore
+global-exclude .dockerignore
+
+# Exclude test and development files
+prune */tests
+prune */test
+prune */.pytest_cache
+prune */.tox
+prune */.coverage
+prune */htmlcov

@@ -1,0 +1,43 @@
+#!/bin/sh
+# postrm script for openspp
+
+set -e
+
+case "$1" in
+    purge)
+        # Remove openspp user and group
+        if getent passwd openspp > /dev/null 2>&1; then
+            deluser --quiet openspp
+        fi
+        
+        if getent group openspp > /dev/null 2>&1; then
+            delgroup --quiet openspp
+        fi
+        
+        # Remove PostgreSQL user if PostgreSQL is running
+        if [ -x /usr/bin/psql ] && su postgres -c "psql -l" >/dev/null 2>&1; then
+            su postgres -c "dropuser openspp" 2>/dev/null || true
+        fi
+        
+        # Remove directories
+        rm -rf /var/lib/openspp
+        rm -rf /var/log/openspp
+        rm -rf /etc/openspp
+        
+        # Remove systemd service file
+        rm -f /lib/systemd/system/openspp.service
+        systemctl daemon-reload
+        ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

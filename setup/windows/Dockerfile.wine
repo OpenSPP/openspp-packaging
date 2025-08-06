@@ -1,0 +1,56 @@
+# Docker image for building Windows packages with Wine
+# This provides a consistent environment for cross-platform Windows builds
+
+FROM ubuntu:22.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV WINEARCH=win64
+ENV WINEPREFIX=/wine
+ENV WINEDEBUG=-all
+
+# Install Wine and dependencies
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y \
+        wine \
+        wine32 \
+        wine64 \
+        winbind \
+        wget \
+        curl \
+        xvfb \
+        python3 \
+        python3-pip \
+        git \
+        tar \
+        gzip \
+        && rm -rf /var/lib/apt/lists/*
+
+# Initialize Wine prefix
+RUN xvfb-run -a wineboot -u
+
+# Install NSIS
+RUN wget -q -O /tmp/nsis.exe \
+    "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.09/nsis-3.09-setup.exe" && \
+    xvfb-run -a wine /tmp/nsis.exe /S && \
+    rm /tmp/nsis.exe && \
+    # Wait for installation to complete
+    sleep 10
+
+# Verify NSIS installation
+RUN xvfb-run -a wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /VERSION || \
+    xvfb-run -a wine "$WINEPREFIX/drive_c/Program Files/NSIS/makensis.exe" /VERSION
+
+# Install Python build tools
+RUN pip3 install --no-cache-dir \
+    build \
+    wheel \
+    setuptools
+
+# Create working directory
+WORKDIR /build
+
+# Entry point for building
+ENTRYPOINT ["xvfb-run", "-a"]
+CMD ["bash"]

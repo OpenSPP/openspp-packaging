@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Part of OpenSPP. See LICENSE file for full copyright and licensing details.
+
+# ABOUTME: Main OpenSPP server launcher script
+# ABOUTME: Wraps Odoo with OpenSPP-specific configuration and module paths
+
+import sys
+import os
+
+# Set the OpenSPP addons path
+openspp_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+openspp_addons = os.path.join(openspp_path, 'openspp', 'addons')
+
+# Add OpenSPP addons to the Odoo addons path
+if 'odoo' in sys.modules:
+    import odoo
+    # Prepend OpenSPP addons to ensure they take precedence
+    if hasattr(odoo, 'addons'):
+        if hasattr(odoo.addons, '__path__'):
+            odoo.addons.__path__.insert(0, openspp_addons)
+else:
+    # If Odoo is not yet imported, set the addons path via environment
+    current_addons = os.environ.get('ODOO_ADDONS_PATH', '')
+    if current_addons:
+        os.environ['ODOO_ADDONS_PATH'] = openspp_addons + ',' + current_addons
+    else:
+        os.environ['ODOO_ADDONS_PATH'] = openspp_addons
+
+# Import and run Odoo
+try:
+    import odoo
+except ImportError:
+    print("Error: Odoo is not installed. Please install Odoo 17.0 first.")
+    sys.exit(1)
+
+if __name__ == "__main__":
+    # Pass all arguments to Odoo
+    odoo.cli.main()

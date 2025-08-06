@@ -1,0 +1,234 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, '17.0' ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  pull_request:
+    branches: [ main, develop, '17.0' ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort pylint
+      
+      - name: Run flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      
+      - name: Check formatting with black
+        run: |
+          black --check --diff .
+      
+      - name: Check import sorting
+        run: |
+          isort --check-only --diff .
+
+  test-build:
+    name: Test Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel setuptools
+      
+      - name: Create dummy modules for testing
+        run: |
+          # Create some dummy modules for build testing
+          mkdir -p openspp/addons/test_module
+          cat > openspp/addons/test_module/__manifest__.py << 'EOF'
+          {
+              'name': 'Test Module',
+              'version': '17.0.1.0.0',
+              'category': 'Test',
+              'summary': 'Test module for CI',
+              'author': 'OpenSPP',
+              'website': 'https://openspp.org',
+              'license': 'LGPL-3',
+              'depends': ['base'],
+              'data': [],
+              'installable': True,
+              'auto_install': False,
+          }
+          EOF
+          
+          touch openspp/addons/test_module/__init__.py
+      
+      - name: Test Python build
+        run: |
+          python -m build
+          ls -la dist/
+      
+      - name: Test package installation
+        run: |
+          python -m venv test-env
+          source test-env/bin/activate
+          pip install dist/*.whl
+          python -c "import openspp; print(f'Version: {openspp.__version__}')"
+          deactivate
+
+  test-docker:
+    name: Test Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Create dummy modules
+        run: |
+          mkdir -p openspp/addons/test_module
+          echo "# Test module" > openspp/addons/test_module/__init__.py
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Test Docker build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: setup/docker/Dockerfile
+          platforms: linux/amd64
+          tags: openspp/openspp:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: false
+
+  test-scripts:
+    name: Test Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/*.sh
+      
+      - name: Test script syntax
+        run: |
+          for script in scripts/*.sh; do
+            echo "Checking $script..."
+            bash -n "$script"
+          done
+      
+      - name: Shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Run Trivy security scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  validate-workflows:
+    name: Validate GitHub Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Validate workflow files
+        run: |
+          # Check workflow syntax
+          for workflow in .github/workflows/*.yml; do
+            echo "Validating $workflow..."
+            python3 -c "import yaml; yaml.safe_load(open('$workflow'))" || exit 1
+          done
+          echo "✅ All workflow files are valid YAML"
+
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [lint, test-build, test-docker, test-scripts, security-scan, validate-workflows]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# CI Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.lint.result }}" == "success" ]; then
+            echo "| Lint | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Lint | ❌ Fail |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test-build.result }}" == "success" ]; then
+            echo "| Build Test | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Build Test | ❌ Fail |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test-docker.result }}" == "success" ]; then
+            echo "| Docker Test | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Docker Test | ❌ Fail |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test-scripts.result }}" == "success" ]; then
+            echo "| Scripts Test | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Scripts Test | ❌ Fail |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.security-scan.result }}" == "success" ]; then
+            echo "| Security Scan | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Security Scan | ⚠️ Check |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.validate-workflows.result }}" == "success" ]; then
+            echo "| Workflows | ✅ Valid |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Workflows | ❌ Invalid |" >> $GITHUB_STEP_SUMMARY
+          fi

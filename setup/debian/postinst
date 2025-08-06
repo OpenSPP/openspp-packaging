@@ -1,0 +1,124 @@
+#!/bin/sh
+# postinst script for openspp
+
+set -e
+
+# Configuration variables
+OPENSPP_USER="openspp"
+OPENSPP_GROUP="openspp"
+OPENSPP_HOME="/var/lib/openspp"
+OPENSPP_LOG_DIR="/var/log/openspp"
+OPENSPP_CONFIG_DIR="/etc/openspp"
+OPENSPP_CONFIG_FILE="${OPENSPP_CONFIG_DIR}/openspp.conf"
+
+case "$1" in
+    configure)
+        # Create openspp user and group
+        if ! getent group "$OPENSPP_GROUP" > /dev/null 2>&1; then
+            addgroup --system "$OPENSPP_GROUP"
+        fi
+        
+        if ! getent passwd "$OPENSPP_USER" > /dev/null 2>&1; then
+            adduser --system --home "$OPENSPP_HOME" --no-create-home \
+                --ingroup "$OPENSPP_GROUP" --disabled-password \
+                --shell /bin/false "$OPENSPP_USER"
+        fi
+        
+        # Create directories
+        mkdir -p "$OPENSPP_HOME"
+        mkdir -p "$OPENSPP_LOG_DIR"
+        mkdir -p "$OPENSPP_CONFIG_DIR"
+        
+        # Create configuration file if it doesn't exist
+        if [ ! -f "$OPENSPP_CONFIG_FILE" ]; then
+            cat > "$OPENSPP_CONFIG_FILE" << EOF
+[options]
+; This is the password that allows database operations:
+; admin_passwd = admin
+db_host = localhost
+db_port = 5432
+db_user = openspp
+db_password = False
+
+; OpenSPP addons path (includes both Odoo and OpenSPP modules)
+addons_path = /usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/openspp/addons
+
+; Server configuration  
+http_port = 8069
+longpolling_port = 8072
+
+; Logging
+log_level = info
+log_file = /var/log/openspp/openspp.log
+logrotate = True
+
+; OpenSPP specific settings
+default_productivity_apps = True
+EOF
+        fi
+        
+        # Set ownership and permissions
+        chown -R "$OPENSPP_USER:$OPENSPP_GROUP" "$OPENSPP_HOME"
+        chown -R "$OPENSPP_USER:$OPENSPP_GROUP" "$OPENSPP_LOG_DIR"
+        chown "$OPENSPP_USER:$OPENSPP_GROUP" "$OPENSPP_CONFIG_FILE"
+        chmod 0750 "$OPENSPP_HOME"
+        chmod 0750 "$OPENSPP_LOG_DIR"
+        chmod 0640 "$OPENSPP_CONFIG_FILE"
+        
+        # Create PostgreSQL user if PostgreSQL is running
+        if [ -x /usr/bin/psql ] && su postgres -c "psql -l" >/dev/null 2>&1; then
+            su postgres -c "createuser -d -R -S $OPENSPP_USER" 2>/dev/null || true
+        fi
+        
+        # Create systemd service file
+        cat > /lib/systemd/system/openspp.service << EOF
+[Unit]
+Description=OpenSPP - Open Source Social Protection Platform
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=$OPENSPP_USER
+Group=$OPENSPP_GROUP
+ExecStart=/usr/bin/openspp --config $OPENSPP_CONFIG_FILE
+KillMode=mixed
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        # Reload systemd
+        systemctl daemon-reload
+        
+        # Enable service (but don't start automatically)
+        systemctl enable openspp.service
+        
+        echo ""
+        echo "OpenSPP has been installed successfully!"
+        echo ""
+        echo "To complete the setup:"
+        echo "1. Configure PostgreSQL if not already done"
+        echo "2. Edit /etc/openspp/openspp.conf to set your database password"
+        echo "3. Initialize the database:"
+        echo "   sudo -u openspp openspp --config /etc/openspp/openspp.conf --init base"
+        echo "4. Start the service:"
+        echo "   sudo systemctl start openspp"
+        echo ""
+        echo "For more information, visit https://docs.openspp.org"
+        echo ""
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

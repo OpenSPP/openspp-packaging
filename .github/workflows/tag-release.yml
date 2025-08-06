@@ -1,0 +1,269 @@
+name: Tag Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '!v*.*.*.*'  # Exclude weekly releases (4 part versions)
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (without v prefix)'
+        required: true
+        type: string
+      modules_ref:
+        description: 'Branch/tag of openspp-modules to use'
+        required: false
+        default: '17.0'
+        type: string
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      modules_ref: ${{ steps.version.outputs.modules_ref }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            MODULES_REF="${{ github.event.inputs.modules_ref }}"
+          else
+            # Extract version from tag
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            # Use matching branch for modules (e.g., 17.0 for v17.0.1)
+            MODULES_REF="${VERSION%.*}"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "modules_ref=$MODULES_REF" >> $GITHUB_OUTPUT
+          
+          # Check if this is a prerelease
+          if [[ "$VERSION" == *"rc"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"alpha"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Releasing version: $VERSION"
+          echo "Using modules from: $MODULES_REF"
+
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check if tag exists
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="v${{ needs.prepare.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "❌ Tag $TAG already exists!"
+            exit 1
+          fi
+          echo "✅ Tag $TAG does not exist, can proceed"
+      
+      - name: Validate version format
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z or X.Y.Z-suffix"
+            exit 1
+          fi
+          echo "✅ Version format is valid"
+      
+      - name: Check modules repository
+        run: |
+          MODULES_REF="${{ needs.prepare.outputs.modules_ref }}"
+          
+          # Check if the branch/tag exists in openspp-modules
+          if ! git ls-remote --exit-code https://github.com/OpenSPP/openspp-modules.git "$MODULES_REF" >/dev/null 2>&1; then
+            echo "❌ Branch/tag '$MODULES_REF' not found in openspp-modules repository"
+            exit 1
+          fi
+          
+          echo "✅ Modules reference '$MODULES_REF' exists"
+
+  build:
+    name: Build Packages
+    needs: [prepare, validate]
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      modules_ref: ${{ needs.prepare.outputs.modules_ref }}
+
+  test:
+    name: Test Packages
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        package: [python, docker]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Test Python package
+        if: matrix.package == 'python'
+        run: |
+          # Download Python package
+          uses: actions/download-artifact@v4
+          with:
+            name: python-packages
+            path: dist/
+          
+          # Create virtual environment
+          python3 -m venv test-env
+          source test-env/bin/activate
+          
+          # Install package
+          pip install dist/*.whl
+          
+          # Test import
+          python -c "import openspp; print(f'OpenSPP version: {openspp.__version__}')"
+          
+          # Test CLI
+          openspp --version || true
+          
+          echo "✅ Python package test passed"
+      
+      - name: Test Docker image
+        if: matrix.package == 'docker'
+        run: |
+          # Download Docker image
+          uses: actions/download-artifact@v4
+          with:
+            name: docker-image
+          
+          # Load image
+          docker load -i openspp-docker-*.tar
+          
+          # Run basic test
+          docker run --rm openspp/openspp:${{ needs.prepare.outputs.version }} --version
+          
+          echo "✅ Docker image test passed"
+
+  publish:
+    name: Publish Release
+    needs: [prepare, build, test]
+    uses: ./.github/workflows/publish.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      publish_pypi: false  # Disabled for now - set to true when ready
+      publish_docker: false  # Disabled for now - set to true when ready
+      publish_github: true  # Only GitHub releases enabled
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  create-tag:
+    name: Create Tag
+    runs-on: ubuntu-latest
+    needs: [prepare, publish]
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Create and push tag
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="v$VERSION"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create annotated tag
+          git tag -a "$TAG" -m "Release $VERSION
+          
+          OpenSPP version $VERSION
+          Modules reference: ${{ needs.prepare.outputs.modules_ref }}
+          Released on: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          
+          # Push tag
+          git push origin "$TAG"
+          
+          echo "✅ Created and pushed tag: $TAG"
+
+  update-latest:
+    name: Update Latest Tag
+    runs-on: ubuntu-latest
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.is_prerelease == 'false'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Update latest tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Delete existing latest tag if it exists
+          git tag -d latest 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+          
+          # Create new latest tag
+          git tag -a latest -m "Latest stable release: ${{ needs.prepare.outputs.version }}"
+          git push origin latest
+          
+          echo "✅ Updated 'latest' tag to v${{ needs.prepare.outputs.version }}"
+
+  summary:
+    name: Release Summary
+    runs-on: ubuntu-latest
+    needs: [prepare, publish]
+    if: always()
+    steps:
+      - name: Generate release summary
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          
+          echo "# 🚀 Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Version: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.publish.result }}" == "success" ]; then
+            echo "### ✅ Release Successful!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Published to:" >> $GITHUB_STEP_SUMMARY
+            echo "- 📝 **GitHub Release**: [v$VERSION](https://github.com/${{ github.repository }}/releases/tag/v$VERSION)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Note**: External publishing (PyPI, Docker Hub) is currently disabled." >> $GITHUB_STEP_SUMMARY
+            echo "All packages are available for download from the GitHub Release page." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Installation:" >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "# Download from GitHub Release" >> $GITHUB_STEP_SUMMARY
+            echo "gh release download v$VERSION" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Or install the wheel directly" >> $GITHUB_STEP_SUMMARY
+            echo "pip install openspp-$VERSION-py3-none-any.whl" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Release Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the workflow logs for details." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Released from: ${{ github.repository }}*" >> $GITHUB_STEP_SUMMARY
+          echo "*Triggered by: @${{ github.actor }}*" >> $GITHUB_STEP_SUMMARY

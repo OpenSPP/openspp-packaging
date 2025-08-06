@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: openspp_db
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - openspp_db_data:/var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  openspp:
+    image: openspp/openspp:17.0
+    container_name: openspp_app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - HOST=db
+      - PORT=5432
+      - USER=odoo
+      - PASSWORD=odoo
+      - WAIT_DB=true
+      # Optional: Initialize with base modules on first run
+      # - INIT_MODULES=base,spp_base,spp_programs
+      # Optional: Development mode
+      # - DEV_MODE=true
+      # Performance tuning
+      - WORKERS=4
+      - MAX_CRON_THREADS=2
+    volumes:
+      - openspp_data:/var/lib/openspp/data
+      - openspp_addons:/mnt/extra-addons
+      - openspp_config:/etc/openspp
+      # Optional: Mount local development modules
+      # - ./custom_addons:/mnt/extra-addons
+    ports:
+      - "8069:8069"
+      - "8071:8071"
+      - "8072:8072"
+    restart: unless-stopped
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: openspp_nginx
+    depends_on:
+      - openspp
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - openspp_static:/var/www/openspp/static
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+
+  # Optional: Redis for caching/sessions
+  redis:
+    image: redis:7-alpine
+    container_name: openspp_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - openspp_redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  openspp_db_data:
+    name: openspp_db_data
+  openspp_data:
+    name: openspp_data
+  openspp_addons:
+    name: openspp_addons
+  openspp_config:
+    name: openspp_config
+  openspp_static:
+    name: openspp_static
+  openspp_redis_data:
+    name: openspp_redis_data
+
+networks:
+  default:
+    name: openspp_network
+    driver: bridge
