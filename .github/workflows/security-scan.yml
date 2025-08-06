@@ -55,10 +55,10 @@ jobs:
                   print('⚠️ SECURITY VULNERABILITIES FOUND:')
                   print('=' * 60)
                   for vuln in report['vulnerabilities']:
-                      print(f\"Package: {vuln.get('package', 'Unknown')} {vuln.get('installed_version', '')}\"
-                      print(f\"Vulnerability: {vuln.get('vulnerability', 'Unknown')}\"
-                      print(f\"Affected versions: {vuln.get('affected_versions', 'Unknown')}\"
-                      print(f\"Description: {vuln.get('description', 'No description')}\"
+                      print(f\"Package: {vuln.get('package', 'Unknown')} {vuln.get('installed_version', '')}\")
+                      print(f\"Vulnerability: {vuln.get('vulnerability', 'Unknown')}\")
+                      print(f\"Affected versions: {vuln.get('affected_versions', 'Unknown')}\")
+                      print(f\"Description: {vuln.get('description', 'No description')}\")
                       print('-' * 60)
                   sys.exit(1)
               else:
