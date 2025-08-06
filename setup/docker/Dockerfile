@@ -25,25 +25,29 @@ ENV OPENSPP_VERSION=${VERSION} \
 USER root
 
 # Install additional system dependencies for OpenSPP
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Geospatial libraries
-    gdal-bin \
-    libgdal-dev \
-    libgeos-dev \
-    libproj-dev \
-    # Image processing
-    libzbar0 \
-    libzbar-dev \
-    # Additional Python build dependencies
-    python3-dev \
-    gcc \
-    g++ \
-    # Utilities
-    git \
-    curl \
-    wget \
-    vim \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        # Basic utilities first
+        git \
+        curl \
+        wget \
+        vim \
+        # Build tools
+        python3-dev \
+        gcc \
+        g++ \
+    && apt-get install -y --no-install-recommends \
+        # Image processing
+        libzbar0 \
+        libzbar-dev \
+    && apt-get install -y --no-install-recommends \
+        # Geospatial libraries (install separately as they can be more fragile)
+        gdal-bin \
+        libgdal-dev \
+        libgeos-dev \
+        libproj-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Install additional Python packages for OpenSPP
 COPY requirements.txt /tmp/openspp-requirements.txt

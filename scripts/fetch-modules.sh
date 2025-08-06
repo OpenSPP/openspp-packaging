@@ -103,7 +103,7 @@ MODULE_LIST_FILE="$PROJECT_ROOT/MODULES.txt"
     echo "# Generated on: $(date)"
     echo "# From: $REPO_URL ($BRANCH)"
     echo ""
-    find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+    find "$MODULES_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort
 } > "$MODULE_LIST_FILE"
 
 echo "Module list saved to: MODULES.txt"
